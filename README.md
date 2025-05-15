@@ -9,7 +9,7 @@ final json = jsonEncode({
 'token': 'abc123',
 });
 
-const passphrase = 'isc_mobix_2025';
+const passphrase = 'contract author';
 
 await MbxSecureFile.saveEncryptedData(json, passphrase);
 
