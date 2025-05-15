@@ -10,6 +10,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:crypto/crypto.dart';
 
 class MbxSecureFile {
   static const _folderName = 'mbx';
@@ -70,7 +71,7 @@ class MbxSecureFile {
       padding: 'PKCS7',
     ));
 
-    final encrypted = encrypter.encrypt(plainText, iv: encrypt.IV(iv));
+    final encrypted = encrypter.encrypt(plainText, iv: encrypt.IV(Uint8List.fromList(iv)));
     // Format: [salt][iv][cipherText]
     return Uint8List.fromList([...salt, ...iv, ...encrypted.bytes]);
   }

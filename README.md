@@ -16,5 +16,5 @@ await MbxSecureFile.saveEncryptedData(json, passphrase);
 final decrypted = await MbxSecureFile.readEncryptedData(passphrase);
 print('Decrypted content: $decrypted');
 
-# Contract
+# Contact
 - Author: Nguyen Huu Nhan (NhanNH26)
