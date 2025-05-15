@@ -1,125 +1,100 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'dart:typed_data';
-
-import 'package:encrypt/encrypt.dart' as encrypt;
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:device_info_plus/device_info_plus.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:crypto/crypto.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 class MbxSecureFile {
-  static const _folderName = 'mbx';
   static const _fileName = 'user_data.mbx';
+  static const _folderName = 'mbx';
 
-  /// Save encrypted data (file on Android, Keychain on iOS)
-  static Future<void> save(String data, String passphrase, {required String key}) async {
-    final encrypted = await _encrypt(data, passphrase);
-    final encoded = base64Encode(encrypted);
-
-    if (Platform.isAndroid) {
-      final path = await _getPublicDocumentsPath();
-      final file = File(path);
-      await file.writeAsString(encoded, flush: true);
-    } else if (Platform.isIOS) {
-      const storage = FlutterSecureStorage();
-      await storage.write(key: key, value: encoded);
-    } else {
-      throw UnsupportedError('Unsupported platform');
-    }
-  }
-
-  /// Read and decrypt saved data
-  static Future<String> read(String passphrase, {required String key}) async {
-    String encoded;
-
-    if (Platform.isAndroid) {
-      final path = await _getPublicDocumentsPath();
-      final file = File(path);
-      if (!await file.exists()) {
-        throw Exception('Encrypted file not found');
-      }
-      encoded = await file.readAsString();
-    } else if (Platform.isIOS) {
-      const storage = FlutterSecureStorage();
-      encoded = await storage.read(key: key) ?? '';
-      if (encoded.isEmpty) {
-        throw Exception('No encrypted data in Keychain');
-      }
-    } else {
-      throw UnsupportedError('Unsupported platform');
-    }
-
-    final encryptedBytes = base64Decode(encoded);
-    return await _decrypt(encryptedBytes, passphrase);
-  }
-
-  /// Encrypt data with AES-256-CBC and PBKDF2
-  static Future<Uint8List> _encrypt(String plainText, String passphrase) async {
-    final salt = _generateRandomBytes(8);
+  /// Save encrypted content to file
+  static Future<void> saveEncryptedData(String content, String passphrase) async {
+    final salt = _generateSalt();
+    final iv = _generateIV();
     final key = await _deriveKey(passphrase, salt);
-    final iv = _generateRandomBytes(16);
+    final encrypted = await _encrypt(content, key, iv);
 
-    final encrypter = encrypt.Encrypter(encrypt.AES(
-      encrypt.Key(key),
-      mode: encrypt.AESMode.cbc,
-      padding: 'PKCS7',
-    ));
+    final payload = jsonEncode({
+      'salt': base64Encode(salt),
+      'iv': base64Encode(iv),
+      'data': base64Encode(encrypted),
+    });
 
-    final encrypted = encrypter.encrypt(plainText, iv: encrypt.IV(Uint8List.fromList(iv)));
-    // Format: [salt][iv][cipherText]
-    return Uint8List.fromList([...salt, ...iv, ...encrypted.bytes]);
+    final filePath = await _getPublicDocumentsPath();
+    final file = File(filePath);
+    await file.writeAsString(payload);
   }
 
-  /// Decrypt data with AES-256-CBC and PBKDF2
+  /// Read and decrypt content
+  static Future<String?> readEncryptedData(String passphrase) async {
+    final filePath = await _getPublicDocumentsPath();
+    final file = File(filePath);
+    if (!await file.exists()) return null;
+
+    final content = await file.readAsString();
+    final jsonMap = jsonDecode(content);
+
+    final salt = base64Decode(jsonMap['salt']);
+    final iv = base64Decode(jsonMap['iv']);
+    final data = base64Decode(jsonMap['data']);
+
+    final key = await _deriveKey(passphrase, salt);
+    final decrypted = await _decrypt(data, key, iv);
+
+    return utf8.decode(decrypted);
+  }
+
+  /// Derive AES key using PBKDF2 + SHA256
   static Future<Uint8List> _deriveKey(String passphrase, List<int> salt) async {
     final algorithm = Pbkdf2(
       macAlgorithm: Hmac.sha256(),
       iterations: 100000,
-      bits: 256, // 32 bytes * 8 = 256 bits
+      bits: 256,
     );
-
     final secretKey = await algorithm.deriveKey(
       secretKey: SecretKey(utf8.encode(passphrase)),
       nonce: salt,
     );
-
     final keyBytes = await secretKey.extractBytes();
     return Uint8List.fromList(keyBytes);
   }
 
-  /// Derive AES key from passphrase and salt using PBKDF2
-  static Future<Uint8List> _deriveKey(String passphrase, List<int> salt) async {
-    final pbkdf2 = Pbkdf2(
-      macAlgorithm: Hmac.sha256(),
-      iterations: 100000,
-      bits: 256,
+  /// AES-256 CBC Encrypt
+  static Future<Uint8List> _encrypt(String content, Uint8List key, List<int> iv) async {
+    final algorithm = AesCbc.with256bits(macAlgorithm: MacAlgorithm.empty);
+    final secretKey = SecretKey(key);
+    final secretBox = await algorithm.encrypt(
+      utf8.encode(content),
+      secretKey: secretKey,
+      nonce: iv,
     );
-
-    final secretKey = await pbkdf2.deriveKey(
-      secretKey: SecretKey(utf8.encode(passphrase)),
-      nonce: salt,
-    );
-
-    final keyBytes = await secretKey.extractBytes();
-    return Uint8List.fromList(keyBytes);
-  }
-  
-  /// Generate secure random bytes
-  static List<int> _generateRandomBytes(int length) {
-    final rand = Random.secure();
-    return List<int>.generate(length, (_) => rand.nextInt(256));
+    return Uint8List.fromList(secretBox.cipherText);
   }
 
-  /// Get public path to /Documents/mbx/user_data.mbx (Android only)
+  /// AES-256 CBC Decrypt
+  static Future<Uint8List> _decrypt(Uint8List data, Uint8List key, List<int> iv) async {
+    final algorithm = AesCbc.with256bits(macAlgorithm: MacAlgorithm.empty);
+    final secretKey = SecretKey(key);
+    final secretBox = SecretBox(data, nonce: iv, mac: Mac.empty);
+    final decrypted = await algorithm.decrypt(secretBox, secretKey: secretKey);
+    return Uint8List.fromList(decrypted);
+  }
+
+  /// Random salt
+  static List<int> _generateSalt() => List<int>.generate(16, (_) => _randomByte());
+
+  /// Random IV
+  static List<int> _generateIV() => List<int>.generate(16, (_) => _randomByte());
+
+  static int _randomByte() => (255 * (DateTime.now().microsecondsSinceEpoch % 1000) / 1000).floor();
+
+  /// Get file path in Public Documents/mbx/user_data.mbx
   static Future<String> _getPublicDocumentsPath() async {
     if (Platform.isAndroid) {
       final sdkInt = (await DeviceInfoPlugin().androidInfo).version.sdkInt;
-
       if (sdkInt >= 30) {
         final status = await Permission.manageExternalStorage.request();
         if (!status.isGranted) {
@@ -136,10 +111,12 @@ class MbxSecureFile {
       if (!await dir.exists()) {
         await dir.create(recursive: true);
       }
-
       return '${dir.path}/$_fileName';
+    } else if (Platform.isIOS) {
+      // iOS: Không hỗ trợ file công khai — thay vào đó dùng Keychain nếu cần
+      throw UnsupportedError('iOS không hỗ trợ lưu file public. Dùng Keychain thay thế.');
     } else {
-      throw UnsupportedError('This platform uses Keychain instead of file storage');
+      throw UnsupportedError('Unsupported platform');
     }
   }
 }
