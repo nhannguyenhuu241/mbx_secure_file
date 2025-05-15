@@ -18,5 +18,3 @@ print('Decrypted content: $decrypted');
 
 # Contract
 - Author: Nguyen Huu Nhan (NhanNH26)
-- Phone: 0924002700
-- Email: NhanNH26@fpt.com
