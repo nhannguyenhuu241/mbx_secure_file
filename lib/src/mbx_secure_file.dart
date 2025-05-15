@@ -15,7 +15,6 @@ import 'package:crypto/crypto.dart';
 class MbxSecureFile {
   static const _folderName = 'mbx';
   static const _fileName = 'user_data.mbx';
-  static const _secureKey = 'secure_user_data';
 
   /// Save encrypted data (file on Android, Keychain on iOS)
   static Future<void> save(String data, String passphrase, {required String key}) async {
@@ -77,36 +76,39 @@ class MbxSecureFile {
   }
 
   /// Decrypt data with AES-256-CBC and PBKDF2
-  static Future<String> _decrypt(Uint8List data, String passphrase) async {
-    final salt = data.sublist(0, 8);
-    final iv = data.sublist(8, 24);
-    final cipherText = data.sublist(24);
-    final key = await _deriveKey(passphrase, salt);
-
-    final encrypter = encrypt.Encrypter(encrypt.AES(
-      encrypt.Key(key),
-      mode: encrypt.AESMode.cbc,
-      padding: 'PKCS7',
-    ));
-
-    final decrypted = encrypter.decrypt(
-      encrypt.Encrypted(cipherText),
-      iv: encrypt.IV(iv),
+  static Future<Uint8List> _deriveKey(String passphrase, List<int> salt) async {
+    final algorithm = Pbkdf2(
+      macAlgorithm: Hmac.sha256(),
+      iterations: 100000,
+      bits: 256, // 32 bytes * 8 = 256 bits
     );
 
-    return decrypted;
+    final secretKey = await algorithm.deriveKey(
+      secretKey: SecretKey(utf8.encode(passphrase)),
+      nonce: salt,
+    );
+
+    final keyBytes = await secretKey.extractBytes();
+    return Uint8List.fromList(keyBytes);
   }
 
   /// Derive AES key from passphrase and salt using PBKDF2
   static Future<Uint8List> _deriveKey(String passphrase, List<int> salt) async {
-    final pbkdf2 = encrypt.PBKDF2(
-      blockLength: 32,
-      iterationCount: 10000,
-      bytes: 32,
+    final pbkdf2 = Pbkdf2(
+      macAlgorithm: Hmac.sha256(),
+      iterations: 100000,
+      bits: 256,
     );
-    return pbkdf2.process(Uint8List.fromList(utf8.encode(passphrase + utf8.decode(salt))));
-  }
 
+    final secretKey = await pbkdf2.deriveKey(
+      secretKey: SecretKey(utf8.encode(passphrase)),
+      nonce: salt,
+    );
+
+    final keyBytes = await secretKey.extractBytes();
+    return Uint8List.fromList(keyBytes);
+  }
+  
   /// Generate secure random bytes
   static List<int> _generateRandomBytes(int length) {
     final rand = Random.secure();
