@@ -1,6 +1,6 @@
 name: mbx_secure_file
 description: "Encrypted file storage with AES-256 + PBKDF2 for Flutter"
-version: 1.0.0
+version: 1.0.1
 homepage:
 repository: https://github.com/nhannguyenhuu241/mbx_secure_file
 
