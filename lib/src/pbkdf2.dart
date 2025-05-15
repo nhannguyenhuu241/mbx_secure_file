@@ -17,7 +17,6 @@ class PBKDF2 {
 List<int> pbkdf2(Hash hash, List<int> password, List<int> salt, int iterations, int keyLength) {
   final hLen = hash.convert([]).bytes.length;
   final l = (keyLength / hLen).ceil();
-  final r = keyLength - (l - 1) * hLen;
 
   var dk = <int>[];
 
@@ -30,10 +29,10 @@ List<int> pbkdf2(Hash hash, List<int> password, List<int> salt, int iterations, 
 }
 
 List<int> _f(Hash hash, List<int> P, List<int> S, int c, int i) {
-  final int_i = ByteData(4)..setInt32(0, i, Endian.big);
+  final inti = ByteData(4)..setInt32(0, i, Endian.big);
   var u = <int>[];
   u.addAll(S);
-  u.addAll(int_i.buffer.asUint8List());
+  u.addAll(inti.buffer.asUint8List());
 
   var result = Hmac(hash, P).convert(u).bytes;
   var T = result;
