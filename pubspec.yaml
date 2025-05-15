@@ -2,6 +2,7 @@ name: mbx_secure_file
 description: "A new Flutter project."
 version: 0.0.1
 homepage:
+repository: https://github.com/nhannguyenhuu241/mbx_secure_file
 
 environment:
   sdk: ^3.6.0
